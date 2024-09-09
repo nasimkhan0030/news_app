@@ -28,11 +28,11 @@ class NewsViewModel(app:Application,val newsRepository: NewsRepository):AndroidV
             }
             else
             {
-                val oldArticles = headlinesResponse?.articles
-                val newArticles = resultResponse.articles
-                oldArticles?.addAll(newArticles)
+//                val oldArticles = headlinesResponse?.articles
+//                val newArticles = resultResponse.articles
+//                oldArticles?.addAll(newArticles)
             }
-                return Resource.Success(headlinesResponse ?: resultResponse)
+                //return Resource.Success(headlinesResponse ?: resultResponse)
             }
         }
         return  Resource.Error(response.message())
