@@ -15,78 +15,132 @@ import com.example.thenewsapp.repository.NewsRepository
 import com.example.thenewsapp.util.Resource
 import kotlinx.coroutines.launch
 import retrofit2.Response
+import retrofit2.http.Query
+import java.io.IOException
+import java.util.Locale.IsoCountryCode
 
 
-class NewsViewModel(app:Application,val newsRepository: NewsRepository):AndroidViewModel(app) {
-    var headlines:MutableLiveData<Resource<NewsResponse>> = MutableLiveData()
+@RequiresApi(Build.VERSION_CODES.M)
+class NewsViewModel(app: Application, val newsRepository: NewsRepository) : AndroidViewModel(app) {
+    var headlines: MutableLiveData<Resource<NewsResponse>> = MutableLiveData()
     var headlinesPage = 1
-    var headlinesResponse : NewsResponse? = null
-    var searchNews:MutableLiveData<Resource<NewsResponse>> = MutableLiveData()
+    var headlinesResponse: NewsResponse? = null
+    var searchNews: MutableLiveData<Resource<NewsResponse>> = MutableLiveData()
     var searchNewsPage = 1
-    var searchNewsResponse:NewsResponse?=null
-    var newSearchQuery:String?=null
-    var oldSearchQuery:String?=null
+    var searchNewsResponse: NewsResponse? = null
+    var newSearchQuery: String? = null
+    var oldSearchQuery: String? = null
 
-    private fun handleHeadlineResponse(response: Response<NewsResponse>):Resource<NewsResponse> {
-        if (response.isSuccessful){
+    init {
+        getHeadlines("us")
+    }
+
+    @RequiresApi(Build.VERSION_CODES.M)
+    fun getHeadlines(countryCode: String) = viewModelScope.launch {
+        headlinesInternet(countryCode)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.M)
+    fun searchNews(searchQuery: String) = viewModelScope.launch {
+        searchNewsInternet(searchQuery)
+    }
+
+    private fun handleHeadlineResponse(response: Response<NewsResponse>): Resource<NewsResponse> {
+        if (response.isSuccessful) {
             response.body()?.let { resultResponse ->
                 headlinesPage++
-            if (headlinesResponse == null) {
-                headlinesResponse = resultResponse
-            }
-            else {
-                val oldArticles = headlinesResponse?.articles
-                val newArticles = resultResponse.articles
-                oldArticles?.addAll(newArticles)
-            }
-                return Resource.Success(headlinesResponse?: resultResponse)
+                if (headlinesResponse == null) {
+                    headlinesResponse = resultResponse
+                } else {
+                    val oldArticles = headlinesResponse?.articles
+                    val newArticles = resultResponse.articles
+                    oldArticles?.addAll(newArticles)
+                }
+                return Resource.Success(headlinesResponse ?: resultResponse)
             }
         }
-        return  Resource.Error(response.message())
+        return Resource.Error(response.message())
 
     }
-private  fun headleSearchNewsResponse(response: Response<NewsResponse>):Resource<NewsResponse>{
-    if (response.isSuccessful){
-        response.body()?.let { resultResponse ->
-            if (searchNewsResponse == null || newSearchQuery != oldSearchQuery)
-            {
-                searchNewsPage=1
-                oldSearchQuery=newSearchQuery
-                searchNewsResponse = resultResponse
+
+    private fun headleSearchNewsResponse(response: Response<NewsResponse>): Resource<NewsResponse> {
+        if (response.isSuccessful) {
+            response.body()?.let { resultResponse ->
+                if (searchNewsResponse == null || newSearchQuery != oldSearchQuery) {
+                    searchNewsPage = 1
+                    oldSearchQuery = newSearchQuery
+                    searchNewsResponse = resultResponse
+                } else {
+                    searchNewsPage++
+                    val oldArticles = searchNewsResponse?.articles
+                    val newArticles = resultResponse.articles
+                    oldArticles?.addAll(newArticles)
+                }
+                return Resource.Success(searchNewsResponse ?: resultResponse)
             }
-            else
-            {
-                searchNewsPage++
-                val oldArticles = searchNewsResponse?.articles
-                val newArticles = resultResponse.articles
-                oldArticles?.addAll(newArticles)
-            }
-            return Resource.Success(searchNewsResponse ?: resultResponse)
         }
-    }
-    return  Resource.Error(response.message())
+        return Resource.Error(response.message())
 
     }
-    fun addToFavourites(article: Article)=viewModelScope.launch{
+
+    fun addToFavourites(article: Article) = viewModelScope.launch {
         newsRepository.upsert(article)
     }
-    fun getFavouriteNews()=newsRepository.getFavouriteNews()
 
-    fun deleteArticle(article: Article)=viewModelScope.launch{
+    fun getFavouriteNews() = newsRepository.getFavouriteNews()
+
+    fun deleteArticle(article: Article) = viewModelScope.launch {
         newsRepository.deleteArticle(article)
     }
 
     @RequiresApi(Build.VERSION_CODES.M)
-    fun internetConnection(context: Context): Boolean{
+    fun internetConnection(context: Context): Boolean {
         (context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).apply {
             return getNetworkCapabilities(activeNetwork)?.run {
-                when{
-                    hasTransport(NetworkCapabilities.TRANSPORT_WIFI)->true
-                    hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)->true
-                    hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)->true
-                    else ->false
+                when {
+                    hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> true
+                    hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> true
+                    hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> true
+                    else -> false
                 }
-            }?:false
+            } ?: false
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.M)
+    private suspend fun headlinesInternet(countryCode: String) {
+        headlines.postValue(Resource.Loading())
+        try {
+            if (internetConnection(this.getApplication())) {
+                var response = newsRepository.getHeadlines(countryCode, headlinesPage)
+                headlines.postValue(handleHeadlineResponse(response))
+            } else {
+                headlines.postValue(Resource.Error("No internet Connection"))
+            }
+        } catch (t: Throwable) {
+            when (t) {
+                is IOException -> headlines.postValue(Resource.Error("Unable to connect"))
+                else -> headlines.postValue(Resource.Error("No signal"))
+            }
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.M)
+    private suspend fun searchNewsInternet(searchQuery: String) {
+        newSearchQuery = searchQuery
+        searchNews.postValue(Resource.Loading())
+        try {
+            if (internetConnection(this.getApplication())) {
+                var response = newsRepository.searchNews(searchQuery, searchNewsPage)
+                searchNews.postValue(headleSearchNewsResponse(response))
+            } else {
+                searchNews.postValue(Resource.Error("No internet Connection"))
+            }
+        } catch (t: Throwable) {
+            when (t) {
+                is IOException -> headlines.postValue(Resource.Error("Unable to connect"))
+                else -> headlines.postValue(Resource.Error("No signal"))
+            }
         }
     }
 }
